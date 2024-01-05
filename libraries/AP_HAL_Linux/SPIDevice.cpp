@@ -155,6 +155,11 @@ SPIDesc SPIDeviceManager::_device[] = {
 SPIDesc SPIDeviceManager::_device[] = {
     SPIDesc("mpu9250",    0, 0, SPI_MODE_3, 8, SPI_CS_KERNEL,  1*MHZ, 10*MHZ),
 };
+#elif CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_REX_CUBYZ && \
+    defined (HAL_BOARD_SUBTYPE_LINUX_REX_CUBYZ_MPU_9250_SPI)
+SPIDesc SPIDeviceManager::_device[] = {
+    SPIDesc("mpu9250",    0, 0, SPI_MODE_3, 8, SPI_CS_KERNEL,  1*MHZ, 10*MHZ),
+};
 #else
 // empty device table
 SPIDesc SPIDeviceManager::_device[] = {

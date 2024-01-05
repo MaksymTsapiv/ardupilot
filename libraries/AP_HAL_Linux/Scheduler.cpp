@@ -45,6 +45,9 @@ extern const AP_HAL::HAL& hal;
 #elif CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_OBAL_V1
 #define APM_LINUX_RCIN_RATE             50
 #define APM_LINUX_IO_RATE               50
+#elif CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_REX_CUBYZ
+#define APM_LINUX_RCIN_RATE             50
+#define APM_LINUX_IO_RATE               50
 #else
 #define APM_LINUX_RCIN_RATE             100
 #define APM_LINUX_IO_RATE               50
