@@ -55,9 +55,18 @@ RUN export ARDUPILOT_ENTRYPOINT="/home/${USER_NAME}/ardupilot_entrypoint.sh" \
 # Set the buildlogs directory into /tmp as other directory aren't accessible
 ENV BUILDLOGS=/tmp/buildlogs
 
+
+RUN wget https://sourceforge.net/projects/raspberry-pi-cross-compilers/files/Bonus%20Raspberry%20Pi%20GCC%2064-Bit%20Toolchains/Raspberry%20Pi%20GCC%2064-Bit%20Cross-Compiler%20Toolchains/Bullseye/GCC%2010.3.0/cross-gcc-10.3.0-pi_64.tar.gz/download -O cross-pi-gcc_64.tar.gz
+RUN tar xf cross-pi-gcc_64.tar.gz
+RUN echo 'export PATH=/ardupilot/cross-pi-gcc-10.3.0-64/bin:$PATH' >> ~/.bashrc
+RUN echo 'export LD_LIBRARY_PATH=/ardupilot/cross-pi-gcc-10.3.0-64/lib:$LD_LIBRARY_PATH' >> ~/.bashrc
+
+RUN git clone --recurse-submodules https://github.com/MaksymTsapiv/ardupilot.git
+
 # Cleanup
 RUN sudo apt-get clean \
-    && sudo rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+    && sudo rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
+    && rm cross-pi-gcc_64.tar.gz
 
 ENV CCACHE_MAXSIZE=1G
 ENTRYPOINT ["/ardupilot_entrypoint.sh"]
