@@ -17,110 +17,47 @@
 #pragma once
 
 #include <AP_HAL/AP_HAL.h>
+#if CONFIG_HAL_BOARD == HAL_BOARD_LINUX
+
 #include <AP_HAL/I2CDevice.h>
+#include <Filter/Filter.h>
+#include <Filter/LowPassFilter2p.h>
 
 #include "AP_InertialSensor.h"
 #include "AP_InertialSensor_Backend.h"
 
-#if CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_AERO
-#define BMI160_DEFAULT_ROTATION ROTATION_ROLL_180
-#else
-#define BMI160_DEFAULT_ROTATION ROTATION_NONE
-#endif
-
-class AP_InertialSensor_LSM6DS33 : public AP_InertialSensor_Backend {
+class AP_InertialSensor_LSM6DS33 : public AP_InertialSensor_Backend
+{
 public:
+    AP_InertialSensor_LSM6DS33(AP_InertialSensor &imu, AP_HAL::OwnPtr<AP_HAL::I2CDevice> dev);
+    
+    
+    
+    virtual ~AP_InertialSensor_LSM6DS33();
 
-    static AP_InertialSensor_Backend *probe(AP_InertialSensor &imu,
-                                            AP_HAL::OwnPtr<AP_HAL::I2CDevice> dev,
-                                            enum Rotation rotation=BMI160_DEFAULT_ROTATION);
+    // probe the sensor on I2C bus
+    static AP_InertialSensor_Backend *probe(AP_InertialSensor &imu, AP_HAL::OwnPtr<AP_HAL::I2CDevice> dev);
 
-    /**
-     * Configure the sensors and start reading routine.
-     */
-    void start() override;
-
+   
+   
+    /* update accel and gyro state */
     bool update() override;
 
+    void start(void) override;
+
+    
 private:
-    AP_InertialSensor_LSM6DS33(AP_InertialSensor &imu,
-                             AP_HAL::OwnPtr<AP_HAL::Device> dev,
-                             enum Rotation rotation);
+    bool _accel_gyro_init();
+    bool _init_sensor();
+    void _accumulate_gyro();
+    void _accumulate_accel();
+    
+    AP_HAL::OwnPtr<AP_HAL::I2CDevice> _dev;
 
-    /**
-     * If the macro BMI160_DEBUG is defined, check if there are errors reported
-     * on the device's error register and panic if so. The implementation is
-     * empty if the BMI160_DEBUG isn't defined.
-     */
-    void _check_err_reg();
+    void _set_filter_frequency(uint8_t filter_hz);
 
-    /**
-     * Try to perform initialization of the BMI160 device.
-     *
-     * The device semaphore must be taken and released by the caller.
-     *
-     * @return true on success, false otherwise.
-     */
-    bool _hardware_init();
-
-    /**
-     * Try to initialize this driver.
-     *
-     * Do sensor and other required initializations.
-     *
-     * @return true on success, false otherwise.
-     */
-    bool _init();
-
-    /**
-     * Configure accelerometer sensor. The device semaphore must already be
-     * taken before calling this function.
-     *
-     * @return true on success, false otherwise.
-     */
-    bool _configure_accel();
-
-    /**
-     * Configure gyroscope sensor. The device semaphore must already be
-     * taken before calling this function.
-     *
-     * @return true on success, false otherwise.
-     */
-    bool _configure_gyro();
-
-    /**
-     * Configure INT1 pin as watermark interrupt pin at the level of one sample
-     * if using fifo or data-ready pin otherwise.
-     *
-     * @return true on success, false otherwise.
-     */
-    bool _configure_int1_pin();
-
-    /**
-     * Configure FIFO.
-     *
-     * @return true on success, false otherwise.
-     */
-    bool _configure_fifo();
-
-    /**
-     * Device periodic callback to read data from the sensors.
-     */
-    void _poll_data();
-
-    /**
-     * Read samples from fifo.
-     */
-    void _read_fifo();
-
-    AP_HAL::OwnPtr<AP_HAL::Device> _dev;
-    enum Rotation _rotation;
-
-    uint8_t _accel_instance;
-    float _accel_scale;
-
+    // gyro and accel instances
     uint8_t _gyro_instance;
-    float _gyro_scale;
-
-    AP_HAL::DigitalSource *_int1_pin;
+    uint8_t _accel_instance;
 };
+#endif // __AP_INERTIAL_SENSOR_L3G4200D2_H__

@@ -129,7 +129,8 @@ public:
         DEVTYPE_INS_ICM42670 = 0x3A,
         DEVTYPE_INS_ICM45686 = 0x3B,
         DEVTYPE_INS_SCHA63T  = 0x3C,
-        DEVTYPE_LSM6DS33     = 0x3D,
+        DEVTYPE_ACC_LSM6DS33 = 0x3D,
+        DEVTYPE_GYR_LSM6DS33 = 0x3E,
     };
 
 protected:
