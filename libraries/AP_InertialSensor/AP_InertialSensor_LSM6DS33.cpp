@@ -36,6 +36,7 @@ const extern AP_HAL::HAL& hal;
 #define INT1_CTRL         0x0D
 #define INT2_CTRL         0x0E
 #define WHO_AM_I          0x0F
+#define WHO_AM_I_VALUE    0x69
 #define CTRL1_XL          0x10
 #define CTRL2_G           0x11
 #define CTRL3_C           0x12
@@ -145,7 +146,11 @@ void AP_InertialSensor_LSM6DS33::_set_gyro_scale(gyro_scale scale)
 
 bool AP_InertialSensor_LSM6DS33::_accel_gyro_init()
 {
-    // AP_HAL::panic("LSM6D33 dummy sensor");
+    uint8_t data = 0;
+    _dev->read_registers(WHO_AM_I, &data, 1);
+    if (data != WHO_AM_I_VALUE) {
+        AP_HAL::panic("AP_InertialSensor_LSM6DS33: could not find LSM6DS33 sensor");
+    }
 
     //// LSM6DS33/LSM6DSO gyro
 
