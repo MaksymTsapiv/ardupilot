@@ -47,11 +47,37 @@ public:
 
     
 private:
+
+    enum gyro_scale {
+        G_SCALE_245DPS = 0,
+        G_SCALE_500DPS,
+        G_SCALE_2000DPS,
+    };
+
+    enum accel_scale {
+        A_SCALE_2G = 0,
+        A_SCALE_4G,
+        A_SCALE_6G,
+        A_SCALE_8G,
+        A_SCALE_16G,
+    };
+
+    bool _accel_data_ready();
+    bool _gyro_data_ready();
     bool _accel_gyro_init();
     bool _init_sensor();
     void _accumulate_gyro();
     void _accumulate_accel();
-    
+    void _set_gyro_scale(gyro_scale scale);
+    void _set_accel_scale(accel_scale scale);
+
+    struct PACKED sensor_raw_data {
+            int16_t x;
+            int16_t y;
+            int16_t z;
+    };
+
+
     AP_HAL::OwnPtr<AP_HAL::I2CDevice> _dev;
 
     void _set_filter_frequency(uint8_t filter_hz);
@@ -59,5 +85,7 @@ private:
     // gyro and accel instances
     uint8_t _gyro_instance;
     uint8_t _accel_instance;
+    float _gyro_scale;
+    float _accel_scale;
 };
 #endif // __AP_INERTIAL_SENSOR_L3G4200D2_H__

@@ -48,6 +48,8 @@ const extern AP_HAL::HAL& hal;
 #define CTRL10_C          0x19
 
 #define STATUS_REG        0x1E
+#define STATUS_REG_G_DRD  (0x1 << 1)
+#define STATUS_REG_A_DRD  (0x1)
 
 #define OUT_TEMP_L        0x20
 #define OUT_TEMP_H        0x21
@@ -66,6 +68,7 @@ const extern AP_HAL::HAL& hal;
 
 #define FIFO_STATUS1      0x3A
 #define FIFO_STATUS2      0x3B
+
 
 
 AP_InertialSensor_LSM6DS33::AP_InertialSensor_LSM6DS33(AP_InertialSensor &imu, AP_HAL::OwnPtr<AP_HAL::I2CDevice> dev)
@@ -102,6 +105,43 @@ AP_InertialSensor_Backend *AP_InertialSensor_LSM6DS33::probe(AP_InertialSensor &
     
 }
 
+void AP_InertialSensor_LSM6DS33::_set_accel_scale(accel_scale scale)
+{
+    /*
+     * Possible accelerometer scales (and their register bit settings) are:
+     * 2 g (000), 4g (001), 6g (010) 8g (011), 16g (100). Here's a bit of an
+     * algorithm to calculate g/(ADC tick) based on that 3-bit value:
+     */
+    _accel_scale = (((float) scale + 1.0f) * 2.0f) / 32768.0f;
+    if (scale == A_SCALE_16G) {
+        /* the datasheet shows an exception for +-16G */
+        _accel_scale = 0.000732f;
+    }
+    /* convert to G/LSB to (m/s/s)/LSB */
+    _accel_scale *= GRAVITY_MSS;
+}
+
+void AP_InertialSensor_LSM6DS33::_set_gyro_scale(gyro_scale scale)
+{
+    /* scales values from datasheet in mdps/digit */
+    switch (scale) {
+        case G_SCALE_245DPS:
+            _gyro_scale = 8.75;
+            break;
+        case G_SCALE_500DPS:
+            _gyro_scale = 17.50;
+            break;
+        case G_SCALE_2000DPS:
+            _gyro_scale = 70;
+            break;
+    }
+
+    /* convert mdps/digit to dps/digit */
+    _gyro_scale /= 1000;
+    /* convert dps/digit to (rad/s)/digit */
+    _gyro_scale *= DEG_TO_RAD;
+}
+
 bool AP_InertialSensor_LSM6DS33::_accel_gyro_init()
 {
     // AP_HAL::panic("LSM6D33 dummy sensor");
@@ -130,6 +170,9 @@ bool AP_InertialSensor_LSM6DS33::_accel_gyro_init()
     _dev->write_register(CTRL3_C, 0b00000100);
     hal.scheduler->delay(5);
 
+    _set_gyro_scale(G_SCALE_2000DPS);
+    _set_accel_scale(A_SCALE_8G);
+
     return true;
 }
 
@@ -141,14 +184,33 @@ bool AP_InertialSensor_LSM6DS33::_init_sensor(void)
     return true;
 }
 
+bool AP_InertialSensor_LSM6DS33::_accel_data_ready()
+{
+    uint8_t status = 0;
+
+    _dev->read_registers(STATUS_REG, &status, 1);
+
+    return status & STATUS_REG_A_DRD;
+}
+
+bool AP_InertialSensor_LSM6DS33::_gyro_data_ready()
+{
+    uint8_t status = 0;
+    _dev->read_registers(STATUS_REG, &status, 1);
+    return status & STATUS_REG_G_DRD;
+}
+
 
 /*
   copy filtered data to the frontend
  */
 bool AP_InertialSensor_LSM6DS33::update(void)
-{
-    update_gyro(_gyro_instance);
-    update_accel(_accel_instance);
+{   if (_gyro_data_ready()) {
+        update_gyro(_gyro_instance);
+    }
+    if (_accel_data_ready()) {
+        update_accel(_accel_instance);
+    }
 
     return true;
 }
@@ -160,27 +222,54 @@ bool AP_InertialSensor_LSM6DS33::update(void)
 void AP_InertialSensor_LSM6DS33::start(void)
 {
 
-    if (!_imu.register_gyro(_gyro_instance, 800, _dev->get_bus_id_devtype(DEVTYPE_GYR_LSM6DS33)) ||
-        !_imu.register_accel(_accel_instance, 800, _dev->get_bus_id_devtype(DEVTYPE_ACC_LSM6DS33))) {
+    if (!_imu.register_gyro(_gyro_instance, 1000, _dev->get_bus_id_devtype(DEVTYPE_GYR_LSM6DS33)) ||
+        !_imu.register_accel(_accel_instance, 1000, _dev->get_bus_id_devtype(DEVTYPE_ACC_LSM6DS33))) {
         return;
     }
 
     // start the timer process to read samples
-    _dev->register_periodic_callback(1250, FUNCTOR_BIND_MEMBER(&AP_InertialSensor_LSM6DS33::_accumulate_accel, void));
+    _dev->register_periodic_callback(1000, FUNCTOR_BIND_MEMBER(&AP_InertialSensor_LSM6DS33::_accumulate_accel, void));
+    _dev->register_periodic_callback(1000, FUNCTOR_BIND_MEMBER(&AP_InertialSensor_LSM6DS33::_accumulate_gyro, void));
 
     AP_HAL::panic("LSM6D33 dummy sensor");
 
 }
 
-// Accumulate values from accels and gyros
-void AP_InertialSensor_LSM6DS33::_accumulate_gyro (void)
-{
-
-}
 
 void AP_InertialSensor_LSM6DS33::_accumulate_accel (void)
 {
-    
+    struct sensor_raw_data raw_data = { };
+    const uint8_t reg = OUTX_L_XL;
+
+    if (!_dev->transfer(&reg, 1, (uint8_t *) &raw_data, sizeof(raw_data))) {
+        return;
+    }
+
+    Vector3f accel_data(raw_data.x, -raw_data.y, -raw_data.z);
+    accel_data *= _accel_scale;
+
+    _rotate_and_correct_accel(_accel_instance, accel_data);
+    _notify_new_accel_raw_sample(_accel_instance, accel_data, AP_HAL::micros64());
+
+}
+
+void AP_InertialSensor_LSM6DS33::_accumulate_gyro (void)
+{
+
+    struct sensor_raw_data raw_data = { };
+    const uint8_t reg = OUTX_L_G;
+
+    if (!_dev->transfer(&reg, 1, (uint8_t *) &raw_data, sizeof(raw_data))) {
+        return;
+    }
+
+    Vector3f gyro_data(raw_data.x, -raw_data.y, -raw_data.z);
+
+    gyro_data *= _gyro_scale;
+
+    _rotate_and_correct_gyro(_gyro_instance, gyro_data);
+    _notify_new_gyro_raw_sample(_gyro_instance, gyro_data, AP_HAL::micros64());
+
 }
 
 #endif
