@@ -29,14 +29,14 @@
 class AP_InertialSensor_LSM6DS33 : public AP_InertialSensor_Backend
 {
 public:
-    AP_InertialSensor_LSM6DS33(AP_InertialSensor &imu, AP_HAL::OwnPtr<AP_HAL::I2CDevice> dev);
+    AP_InertialSensor_LSM6DS33(AP_InertialSensor &imu, AP_HAL::OwnPtr<AP_HAL::I2CDevice> dev, enum Rotation rotation);
     
     
     
     virtual ~AP_InertialSensor_LSM6DS33();
 
     // probe the sensor on I2C bus
-    static AP_InertialSensor_Backend *probe(AP_InertialSensor &imu, AP_HAL::OwnPtr<AP_HAL::I2CDevice> dev);
+    static AP_InertialSensor_Backend *probe(AP_InertialSensor &imu, AP_HAL::OwnPtr<AP_HAL::I2CDevice> dev, enum Rotation rotation);
 
    
    
@@ -87,5 +87,6 @@ private:
     uint8_t _accel_instance;
     float _gyro_scale;
     float _accel_scale;
+    enum Rotation _rotation;
 };
 #endif // __AP_INERTIAL_SENSOR_L3G4200D2_H__

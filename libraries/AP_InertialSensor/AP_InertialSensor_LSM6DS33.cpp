@@ -71,9 +71,10 @@ const extern AP_HAL::HAL& hal;
 
 
 
-AP_InertialSensor_LSM6DS33::AP_InertialSensor_LSM6DS33(AP_InertialSensor &imu, AP_HAL::OwnPtr<AP_HAL::I2CDevice> dev)
+AP_InertialSensor_LSM6DS33::AP_InertialSensor_LSM6DS33(AP_InertialSensor &imu, AP_HAL::OwnPtr<AP_HAL::I2CDevice> dev, enum Rotation rotation)
     : AP_InertialSensor_Backend(imu)
     , _dev(std::move(dev))
+    , _rotation(std::move(rotation))
 
 {
 }
@@ -85,7 +86,7 @@ AP_InertialSensor_LSM6DS33::~AP_InertialSensor_LSM6DS33()
 
 
 
-AP_InertialSensor_Backend *AP_InertialSensor_LSM6DS33::probe(AP_InertialSensor &imu, AP_HAL::OwnPtr<AP_HAL::I2CDevice> dev)
+AP_InertialSensor_Backend *AP_InertialSensor_LSM6DS33::probe(AP_InertialSensor &imu, AP_HAL::OwnPtr<AP_HAL::I2CDevice> dev, enum Rotation rotation)
 
 {
     // AP_HAL::panic("LSM6D33 dummy sensor");
@@ -95,7 +96,7 @@ AP_InertialSensor_Backend *AP_InertialSensor_LSM6DS33::probe(AP_InertialSensor &
     }
 
     AP_InertialSensor_LSM6DS33 *sensor
-        = new AP_InertialSensor_LSM6DS33(imu, std::move(dev));
+        = new AP_InertialSensor_LSM6DS33(imu, std::move(dev), rotation);
     if (!sensor || !sensor->_init_sensor()) {
         delete sensor;
         return nullptr;
