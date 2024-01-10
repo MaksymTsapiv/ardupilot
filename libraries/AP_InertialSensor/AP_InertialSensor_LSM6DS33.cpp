@@ -231,12 +231,9 @@ bool AP_InertialSensor_LSM6DS33::_gyro_data_ready()
   copy filtered data to the frontend
  */
 bool AP_InertialSensor_LSM6DS33::update(void)
-{   if (_gyro_data_ready()) {
-        update_gyro(_gyro_instance);
-    }
-    if (_accel_data_ready()) {
-        update_accel(_accel_instance);
-    }
+{
+    update_gyro(_gyro_instance);
+    update_accel(_accel_instance);
 
     return true;
 }
@@ -256,8 +253,6 @@ void AP_InertialSensor_LSM6DS33::start(void)
     set_accel_orientation(_accel_instance, _rotation);
 
     // start the timer process to read samples
-//    _dev->register_periodic_callback(10000, FUNCTOR_BIND_MEMBER(&AP_InertialSensor_LSM6DS33::_accumulate_accel, void));
-//    _dev->register_periodic_callback(10000, FUNCTOR_BIND_MEMBER(&AP_InertialSensor_LSM6DS33::_accumulate_gyro, void));
     _configure_fifo();
     _dev->register_periodic_callback(1000, FUNCTOR_BIND_MEMBER(&AP_InertialSensor_LSM6DS33::_read_fifo, void));
 
