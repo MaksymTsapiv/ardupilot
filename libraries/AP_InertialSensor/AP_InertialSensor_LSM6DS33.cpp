@@ -109,16 +109,25 @@ AP_InertialSensor_Backend *AP_InertialSensor_LSM6DS33::probe(AP_InertialSensor &
 
 void AP_InertialSensor_LSM6DS33::_set_accel_scale(accel_scale scale)
 {
-    /*
-     * Possible accelerometer scales (and their register bit settings) are:
-     * 2 g (000), 4g (001), 6g (010) 8g (011), 16g (100). Here's a bit of an
-     * algorithm to calculate g/(ADC tick) based on that 3-bit value:
-     */
-    _accel_scale = (((float) scale + 1.0f) * 2.0f) / 32768.0f;
-    if (scale == A_SCALE_16G) {
-        /* the datasheet shows an exception for +-16G */
-        _accel_scale = 0.000732f;
+    switch (scale){
+        case A_SCALE_2G:
+            _accel_scale = 0.061;
+            break;
+        case A_SCALE_4G:
+            _accel_scale = 0.122;
+            break;
+        case A_SCALE_8G:
+            _accel_scale = 0.244;
+            break;
+        case A_SCALE_16G:
+            _accel_scale = 0.488;
+            break;
+
     }
+
+    /* convert to mG/LSB to g/LSB */
+    _accel_scale /= 1000;
+
     /* convert to G/LSB to (m/s/s)/LSB */
     _accel_scale *= GRAVITY_MSS;
 }
@@ -193,8 +202,11 @@ bool AP_InertialSensor_LSM6DS33::_init_sensor(void)
 bool AP_InertialSensor_LSM6DS33::_accel_data_ready()
 {
     uint8_t status = 0;
-
     _dev->read_registers(STATUS_REG, &status, 1);
+
+    hal.console->printf("accel status\n");
+    hal.console->printf("%02x", status & STATUS_REG_A_DRD);
+    hal.console->printf("\n");
 
     return status & STATUS_REG_A_DRD;
 }
@@ -203,6 +215,11 @@ bool AP_InertialSensor_LSM6DS33::_gyro_data_ready()
 {
     uint8_t status = 0;
     _dev->read_registers(STATUS_REG, &status, 1);
+
+    hal.console->printf("gyro status\n");
+    hal.console->printf("%02x", status & STATUS_REG_G_DRD);
+    hal.console->printf("\n");
+
     return status & STATUS_REG_G_DRD;
 }
 
@@ -228,16 +245,18 @@ bool AP_InertialSensor_LSM6DS33::update(void)
 void AP_InertialSensor_LSM6DS33::start(void)
 {
 
-    if (!_imu.register_gyro(_gyro_instance, 1000, _dev->get_bus_id_devtype(DEVTYPE_GYR_LSM6DS33)) ||
-        !_imu.register_accel(_accel_instance, 1000, _dev->get_bus_id_devtype(DEVTYPE_ACC_LSM6DS33))) {
+    if (!_imu.register_gyro(_gyro_instance, 1660, _dev->get_bus_id_devtype(DEVTYPE_GYR_LSM6DS33)) ||
+        !_imu.register_accel(_accel_instance, 1660, _dev->get_bus_id_devtype(DEVTYPE_ACC_LSM6DS33))) {
         return;
     }
+    set_gyro_orientation(_gyro_instance, _rotation);
+    set_accel_orientation(_accel_instance, _rotation);
 
     // start the timer process to read samples
-    _dev->register_periodic_callback(1000, FUNCTOR_BIND_MEMBER(&AP_InertialSensor_LSM6DS33::_accumulate_accel, void));
-    _dev->register_periodic_callback(1000, FUNCTOR_BIND_MEMBER(&AP_InertialSensor_LSM6DS33::_accumulate_gyro, void));
+    _dev->register_periodic_callback(10000, FUNCTOR_BIND_MEMBER(&AP_InertialSensor_LSM6DS33::_accumulate_accel, void));
+    _dev->register_periodic_callback(10000, FUNCTOR_BIND_MEMBER(&AP_InertialSensor_LSM6DS33::_accumulate_gyro, void));
 
-    AP_HAL::panic("LSM6D33 dummy sensor");
+//    AP_HAL::panic("LSM6D33 dummy sensor");
 
 }
 
@@ -251,7 +270,12 @@ void AP_InertialSensor_LSM6DS33::_accumulate_accel (void)
         return;
     }
 
-    Vector3f accel_data(raw_data.x, -raw_data.y, -raw_data.z);
+    hal.console->printf("accel data \n");
+
+    hal.console->printf("%02x:%02x:%02x ", raw_data.x, raw_data.y, -raw_data.z);
+    hal.console->printf("\n");
+
+    Vector3f accel_data(raw_data.x, raw_data.y, -raw_data.z);
     accel_data *= _accel_scale;
 
     _rotate_and_correct_accel(_accel_instance, accel_data);
@@ -269,8 +293,11 @@ void AP_InertialSensor_LSM6DS33::_accumulate_gyro (void)
         return;
     }
 
-    Vector3f gyro_data(raw_data.x, -raw_data.y, -raw_data.z);
+    hal.console->printf("gyro data\n");
+    hal.console->printf("%02x:%02x:%02x ", raw_data.x, raw_data.y, -raw_data.z);
+    hal.console->printf("\n");
 
+    Vector3f gyro_data(raw_data.x, raw_data.y, -raw_data.z);
     gyro_data *= _gyro_scale;
 
     _rotate_and_correct_gyro(_gyro_instance, gyro_data);

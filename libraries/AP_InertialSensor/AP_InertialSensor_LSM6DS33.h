@@ -57,7 +57,6 @@ private:
     enum accel_scale {
         A_SCALE_2G = 0,
         A_SCALE_4G,
-        A_SCALE_6G,
         A_SCALE_8G,
         A_SCALE_16G,
     };
