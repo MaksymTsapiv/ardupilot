@@ -69,7 +69,10 @@ const extern AP_HAL::HAL& hal;
 
 #define FIFO_STATUS1      0x3A
 #define FIFO_STATUS2      0x3B
-
+#define FIFO_CTRL3        0x08
+#define FIFO_CTRL5        0x0A
+#define FIFO_DATA_OUT_L   0x3E
+#define FIFO_DATA_OUT_H   0x3F
 
 
 AP_InertialSensor_LSM6DS33::AP_InertialSensor_LSM6DS33(AP_InertialSensor &imu, AP_HAL::OwnPtr<AP_HAL::I2CDevice> dev, enum Rotation rotation)
@@ -253,56 +256,105 @@ void AP_InertialSensor_LSM6DS33::start(void)
     set_accel_orientation(_accel_instance, _rotation);
 
     // start the timer process to read samples
-    _dev->register_periodic_callback(10000, FUNCTOR_BIND_MEMBER(&AP_InertialSensor_LSM6DS33::_accumulate_accel, void));
-    _dev->register_periodic_callback(10000, FUNCTOR_BIND_MEMBER(&AP_InertialSensor_LSM6DS33::_accumulate_gyro, void));
+//    _dev->register_periodic_callback(10000, FUNCTOR_BIND_MEMBER(&AP_InertialSensor_LSM6DS33::_accumulate_accel, void));
+//    _dev->register_periodic_callback(10000, FUNCTOR_BIND_MEMBER(&AP_InertialSensor_LSM6DS33::_accumulate_gyro, void));
+    _configure_fifo();
+    _dev->register_periodic_callback(1000, FUNCTOR_BIND_MEMBER(&AP_InertialSensor_LSM6DS33::_read_fifo, void));
 
 //    AP_HAL::panic("LSM6D33 dummy sensor");
 
 }
 
 
-void AP_InertialSensor_LSM6DS33::_accumulate_accel (void)
-{
-    struct sensor_raw_data raw_data = { };
-    const uint8_t reg = OUTX_L_XL;
 
-    if (!_dev->transfer(&reg, 1, (uint8_t *) &raw_data, sizeof(raw_data))) {
-        return;
+bool AP_InertialSensor_LSM6DS33::_configure_fifo()
+{
+    // 1. Choose the decimation factor for each sensor through the decimation bits in the
+    // FIFO_CTRL3 and FIFO_CTRL4 registers. For no decimation, both the DEC_FIFO_GYRO[2:0] and the
+    // DEC_FIFO_XL[2:0] fields of the FIFO_CTRL3 register have to be set to 001b;
+    bool status = _dev->write_register(FIFO_CTRL3, 0b00001001);
+    if (!status) {
+        DEV_PRINTF("LSM6DS33: Unable to configure FIFO decimation factor (FIFO_CTRL3)\n");
+        return false;
     }
 
-    hal.console->printf("accel data \n");
+    // 2. Choose the FIFO ODR through the ODR_FIFO_[3:0] bits in the FIFO_CTRL5 register. It’s
+    // recommended to set the ODR_FIFO_[3:0] bits of the FIFO_CTRL5 register to 1000b in order to
+    // set the FIFO trigger ODR to 1600 Hz if the internal trigger (accelerometer/gyroscope
+    // data-ready) is used and Gyroscope ODR = 1.66 kHz, Accelerometer ODR = 1.66 kHz;
+    // 3. Set the FIFO_MODE_[2:0] bits in the FIFO_CTRL5 register to 001b to enable the FIFO
+    // mode.
+    status = _dev->write_register(FIFO_CTRL5, 0b01000001);
+    if (!status) {
+        DEV_PRINTF("LSM6DS33: Unable to configure FIFO mode or ODR (FIFO_CTRL5)\n");
+        return false;
+    }
 
-    hal.console->printf("%02x:%02x:%02x ", raw_data.x, raw_data.y, -raw_data.z);
-    hal.console->printf("\n");
+    // To guarantee the correct acquisition of data during the switching into and out of FIFO mode,
+    // the first set of data acquired must be discarded.
+    struct sensor_raw_data raw_data[2] = {0};
+    status = _dev->read_registers(FIFO_DATA_OUT_L, (uint8_t *) &raw_data, 2 * sizeof(raw_data));
+    if (!status) {
+        DEV_PRINTF("LSM6DS33: Unable to read the first set of FIFO data (FIFO_DATA_OUT_L, FIFO_DATA_OUT_H)\n");
+        return false;
+    }
 
-    Vector3f accel_data(raw_data.x, raw_data.y, -raw_data.z);
-    accel_data *= _accel_scale;
-
-    _rotate_and_correct_accel(_accel_instance, accel_data);
-    _notify_new_accel_raw_sample(_accel_instance, accel_data, AP_HAL::micros64());
-
+    return true;
 }
 
-void AP_InertialSensor_LSM6DS33::_accumulate_gyro (void)
+void AP_InertialSensor_LSM6DS33::_read_fifo()
 {
+    struct sensor_raw_data raw_data[1365] = {0};
 
-    struct sensor_raw_data raw_data = { };
-    const uint8_t reg = OUTX_L_G;
+    // 1. Read the FIFO_STATUS1 and FIFO_STATUS2 registers to check how many words
+    // (16-bit data) are stored in the FIFO. This information is contained in the
+    // DIFF_FIFO_[11:0] bits.
+    uint16_t num_samples = 0;
+    bool status = _dev->read_registers(FIFO_STATUS1, (uint8_t *) &num_samples, 2);
+    if (!status) {
+        DEV_PRINTF("LSM6DS33: Unable to read the number of samples in the FIFO (FIFO_STATUS1, FIFO_STATUS2)\n");
+        return;
+    }
+    num_samples &= 0xFFF;  // Consider only DIFF_FIFO_[11:0] bits.
+    hal.console->printf("num samples: %d\n", num_samples);
 
-    if (!_dev->transfer(&reg, 1, (uint8_t *) &raw_data, sizeof(raw_data))) {
+    // 2. Read the FIFO_STATUS3 and FIFO_STATUS4 registers. The FIFO_PATTERN_[9:0]
+    // bits allows understanding which sensor and which couple of bytes is being read.
+    // TODO: write asserts
+
+    // 3. Read the FIFO_DATA_OUT_L and FIFO_DATA_OUT_H registers to retrieve the oldest
+    // sample (16-bits format) in the FIFO. They are respectively the lower and the upper part
+    // of the oldest sample.
+    status = _dev->read_registers(FIFO_DATA_OUT_L, (uint8_t *)raw_data, 2 * num_samples);
+    if (!status) {
+        DEV_PRINTF("LSM6DS33: Unable to read FIFO data (FIFO_DATA_OUT_L, FIFO_DATA_OUT_H)\n");
         return;
     }
 
-    hal.console->printf("gyro data\n");
-    hal.console->printf("%02x:%02x:%02x ", raw_data.x, raw_data.y, -raw_data.z);
-    hal.console->printf("\n");
+    uint16_t num_data = num_samples / 3;  // Each reading consists of 3 16-bit values (x, y, z)
+    for (uint16_t i = 0; i < num_data; i += 2) {
+        Vector3f gyro{(float)(int16_t)le16toh(raw_data[i].x),
+                      (float)(int16_t)le16toh(raw_data[i].y),
+                      (float)(int16_t)le16toh(raw_data[i].z)};
+        Vector3f accel{(float)(int16_t)le16toh(raw_data[i + 1].x),
+                       (float)(int16_t)le16toh(raw_data[i + 1].y),
+                       (float)(int16_t)le16toh(raw_data[i + 1].z)};
 
-    Vector3f gyro_data(raw_data.x, raw_data.y, -raw_data.z);
-    gyro_data *= _gyro_scale;
+        hal.console->printf("gyro: %02x:%02x:%02x\n", raw_data[i].x, raw_data[i].y, -raw_data[i].z);
+        hal.console->printf("acc: %02x:%02x:%02x\n", raw_data[i + 1].x, raw_data[i + 1].y, -raw_data[i + 1].z);
 
-    _rotate_and_correct_gyro(_gyro_instance, gyro_data);
-    _notify_new_gyro_raw_sample(_gyro_instance, gyro_data, AP_HAL::micros64());
+        accel.rotate(_rotation);
+        gyro.rotate(_rotation);
 
+        accel *= _accel_scale;
+        gyro *= _gyro_scale;
+
+        _rotate_and_correct_accel(_accel_instance, accel);
+        _rotate_and_correct_gyro(_gyro_instance, gyro);
+
+        _notify_new_accel_raw_sample(_accel_instance, accel);
+        _notify_new_gyro_raw_sample(_gyro_instance, gyro);
+    }
 }
 
 #endif

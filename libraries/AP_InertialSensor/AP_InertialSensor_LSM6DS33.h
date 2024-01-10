@@ -70,6 +70,9 @@ private:
     void _set_gyro_scale(gyro_scale scale);
     void _set_accel_scale(accel_scale scale);
 
+    bool _configure_fifo();
+    void _read_fifo();
+
     struct PACKED sensor_raw_data {
             int16_t x;
             int16_t y;
