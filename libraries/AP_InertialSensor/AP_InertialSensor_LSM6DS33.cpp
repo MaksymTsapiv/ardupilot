@@ -254,7 +254,7 @@ void AP_InertialSensor_LSM6DS33::start(void)
 
     // start the timer process to read samples
     _configure_fifo();
-    _dev->register_periodic_callback(1000, FUNCTOR_BIND_MEMBER(&AP_InertialSensor_LSM6DS33::_read_fifo, void));
+    _dev->register_periodic_callback(5000, FUNCTOR_BIND_MEMBER(&AP_InertialSensor_LSM6DS33::_read_fifo, void));
 
 //    AP_HAL::panic("LSM6D33 dummy sensor");
 
@@ -264,12 +264,18 @@ void AP_InertialSensor_LSM6DS33::start(void)
 
 bool AP_InertialSensor_LSM6DS33::_configure_fifo()
 {
-    // 1. Choose the decimation factor for each sensor through the decimation bits in the
-    // FIFO_CTRL3 and FIFO_CTRL4 registers. For no decimation, both the DEC_FIFO_GYRO[2:0] and the
-    // DEC_FIFO_XL[2:0] fields of the FIFO_CTRL3 register have to be set to 001b;
-    bool status = _dev->write_register(FIFO_CTRL3, 0b00001001);
+
+    // When Bypass mode is enabled, the FIFO is not used, the buffer content is cleared, and it
+    // remains empty until another mode is selected.
+    // Bypass mode is selected when the FIFO_MODE_[2:0] bits are set to 000b. When this mode
+    // is enabled, the FIFO_STATUS2 register contains the value 10h (FIFO empty).
+    // Bypass mode must be used in order to stop and reset the FIFO buffer when a different
+    // mode is operating. Note that placing the FIFO buffer in Bypass mode, the whole buffer
+    // content is cleared.
+
+    bool status = _dev->write_register(FIFO_CTRL5, 0b00000000);
     if (!status) {
-        DEV_PRINTF("LSM6DS33: Unable to configure FIFO decimation factor (FIFO_CTRL3)\n");
+        DEV_PRINTF("LSM6DS33: Unable to clear FIFO (FIFO_CTRL5)\n");
         return false;
     }
 
@@ -284,6 +290,17 @@ bool AP_InertialSensor_LSM6DS33::_configure_fifo()
         DEV_PRINTF("LSM6DS33: Unable to configure FIFO mode or ODR (FIFO_CTRL5)\n");
         return false;
     }
+
+    // 1. Choose the decimation factor for each sensor through the decimation bits in the
+    // FIFO_CTRL3 and FIFO_CTRL4 registers. For no decimation, both the DEC_FIFO_GYRO[2:0] and the
+    // DEC_FIFO_XL[2:0] fields of the FIFO_CTRL3 register have to be set to 001b;
+    status = _dev->write_register(FIFO_CTRL3, 0b00001001);
+    if (!status) {
+        DEV_PRINTF("LSM6DS33: Unable to configure FIFO decimation factor (FIFO_CTRL3)\n");
+        return false;
+    }
+
+
 
     // To guarantee the correct acquisition of data during the switching into and out of FIFO mode,
     // the first set of data acquired must be discarded.
@@ -311,7 +328,7 @@ void AP_InertialSensor_LSM6DS33::_read_fifo()
         return;
     }
     num_samples &= 0xFFF;  // Consider only DIFF_FIFO_[11:0] bits.
-    hal.console->printf("num samples: %d\n", num_samples);
+//    hal.console->printf("num samples: %d\n", num_samples);
 
     // 2. Read the FIFO_STATUS3 and FIFO_STATUS4 registers. The FIFO_PATTERN_[9:0]
     // bits allows understanding which sensor and which couple of bytes is being read.
@@ -335,8 +352,8 @@ void AP_InertialSensor_LSM6DS33::_read_fifo()
                        (float)(int16_t)le16toh(raw_data[i + 1].y),
                        (float)(int16_t)le16toh(raw_data[i + 1].z)};
 
-        hal.console->printf("gyro: %02x:%02x:%02x\n", raw_data[i].x, raw_data[i].y, -raw_data[i].z);
-        hal.console->printf("acc: %02x:%02x:%02x\n", raw_data[i + 1].x, raw_data[i + 1].y, -raw_data[i + 1].z);
+//        hal.console->printf("gyro: %02x:%02x:%02x\n", raw_data[i].x, raw_data[i].y, -raw_data[i].z);
+//        hal.console->printf("acc: %02x:%02x:%02x\n", raw_data[i + 1].x, raw_data[i + 1].y, -raw_data[i + 1].z);
 
         accel.rotate(_rotation);
         gyro.rotate(_rotation);
