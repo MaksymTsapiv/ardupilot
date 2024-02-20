@@ -305,7 +305,7 @@ bool AP_InertialSensor_LSM6DS33::_configure_fifo()
     // To guarantee the correct acquisition of data during the switching into and out of FIFO mode,
     // the first set of data acquired must be discarded.
     struct sensor_raw_data raw_data[2] = {0};
-    status = _dev->read_registers(FIFO_DATA_OUT_L, (uint8_t *) &raw_data, 2 * sizeof(raw_data));
+    status = _dev->read_registers(FIFO_DATA_OUT_L, (uint8_t *) &raw_data, sizeof(raw_data));
     if (!status) {
         DEV_PRINTF("LSM6DS33: Unable to read the first set of FIFO data (FIFO_DATA_OUT_L, FIFO_DATA_OUT_H)\n");
         return false;
