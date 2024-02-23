@@ -166,26 +166,43 @@ bool AP_InertialSensor_LSM6DS33::_accel_gyro_init()
 
     //// LSM6DS33/LSM6DSO gyro
 
-    // ODR = 1000 (1.66 kHz (high performance))
+    // ODR = 0110 (416 Hz (high performance))
     // FS_G = 11 (2000 dps)
-    _dev->write_register(CTRL2_G, 0b10001100);
+    bool status = _dev->write_register(CTRL2_G, 0b01101100);
+    if (!status) {
+        DEV_PRINTF("LSM6DS33: Unable to write CTRL2_G\n");
+        return false;
+    }
     hal.scheduler->delay(5);
 
     // defaults
-    _dev->write_register(CTRL7_G, 0b00000000);
+    status = _dev->write_register(CTRL7_G, 0b00000000);
+    if (!status) {
+        DEV_PRINTF("LSM6DS33: Unable to write CTRL7_G\n");
+        return false;
+    }
     hal.scheduler->delay(5);
 
     //// LSM6DS33/LSM6DSO accelerometer
 
-    // ODR = 1000 (1.66 kHz (high performance))
+    // ODR = 0110 (416 Hz (high performance))
     // FS_XL = 11 (8 g full scale)
-    _dev->write_register(CTRL1_XL, 0b10001100);
+    status = _dev->write_register(CTRL1_XL, 0b01101100);
+    if (!status) {
+        DEV_PRINTF("LSM6DS33: Unable to write CTRL1_XL\n");
+        return false;
+    }
     hal.scheduler->delay(5);
     
     //// common
 
     // IF_INC = 1 (automatically increment address register)
-    _dev->write_register(CTRL3_C, 0b00000100);
+    // BDU = 1 (output registers not updated until MSB and LSB have been read)
+    status = _dev->write_register(CTRL3_C, 0b01000100);
+    if (!status) {
+        DEV_PRINTF("LSM6DS33: Unable to write CTRL3_C\n");
+        return false;
+    }
     hal.scheduler->delay(5);
 
     _set_gyro_scale(G_SCALE_2000DPS);
@@ -245,26 +262,25 @@ bool AP_InertialSensor_LSM6DS33::update(void)
 void AP_InertialSensor_LSM6DS33::start(void)
 {
 
-    if (!_imu.register_gyro(_gyro_instance, 1660, _dev->get_bus_id_devtype(DEVTYPE_GYR_LSM6DS33)) ||
-        !_imu.register_accel(_accel_instance, 1660, _dev->get_bus_id_devtype(DEVTYPE_ACC_LSM6DS33))) {
+    if (!_imu.register_gyro(_gyro_instance, 416, _dev->get_bus_id_devtype(DEVTYPE_GYR_LSM6DS33)) ||
+        !_imu.register_accel(_accel_instance, 416, _dev->get_bus_id_devtype(DEVTYPE_ACC_LSM6DS33))) {
         return;
     }
     set_gyro_orientation(_gyro_instance, _rotation);
     set_accel_orientation(_accel_instance, _rotation);
 
     // start the timer process to read samples
+
     _configure_fifo();
+    _reset_fifo();
     _dev->register_periodic_callback(5000, FUNCTOR_BIND_MEMBER(&AP_InertialSensor_LSM6DS33::_read_fifo, void));
 
 //    AP_HAL::panic("LSM6D33 dummy sensor");
 
 }
 
-
-
-bool AP_InertialSensor_LSM6DS33::_configure_fifo()
+bool AP_InertialSensor_LSM6DS33::_reset_fifo()
 {
-
     // When Bypass mode is enabled, the FIFO is not used, the buffer content is cleared, and it
     // remains empty until another mode is selected.
     // Bypass mode is selected when the FIFO_MODE_[2:0] bits are set to 000b. When this mode
@@ -280,21 +296,27 @@ bool AP_InertialSensor_LSM6DS33::_configure_fifo()
     }
 
     // 2. Choose the FIFO ODR through the ODR_FIFO_[3:0] bits in the FIFO_CTRL5 register. It’s
-    // recommended to set the ODR_FIFO_[3:0] bits of the FIFO_CTRL5 register to 1000b in order to
-    // set the FIFO trigger ODR to 1600 Hz if the internal trigger (accelerometer/gyroscope
-    // data-ready) is used and Gyroscope ODR = 1.66 kHz, Accelerometer ODR = 1.66 kHz;
+    // recommended to set the ODR_FIFO_[3:0] bits of the FIFO_CTRL5 register to 0110b in order to
+    // set the FIFO trigger ODR to 416 Hz if the internal trigger (accelerometer/gyroscope
+    // data-ready) is used and Gyroscope ODR = 416 Hz, Accelerometer ODR = 416 Hz;
     // 3. Set the FIFO_MODE_[2:0] bits in the FIFO_CTRL5 register to 001b to enable the FIFO
     // mode.
-    status = _dev->write_register(FIFO_CTRL5, 0b01000001);
+    status = _dev->write_register(FIFO_CTRL5, 0b00110001);
     if (!status) {
         DEV_PRINTF("LSM6DS33: Unable to configure FIFO mode or ODR (FIFO_CTRL5)\n");
         return false;
     }
 
+    return true;
+}
+
+bool AP_InertialSensor_LSM6DS33::_configure_fifo()
+{
+
     // 1. Choose the decimation factor for each sensor through the decimation bits in the
     // FIFO_CTRL3 and FIFO_CTRL4 registers. For no decimation, both the DEC_FIFO_GYRO[2:0] and the
     // DEC_FIFO_XL[2:0] fields of the FIFO_CTRL3 register have to be set to 001b;
-    status = _dev->write_register(FIFO_CTRL3, 0b00001001);
+    bool status = _dev->write_register(FIFO_CTRL3, 0b00001001);
     if (!status) {
         DEV_PRINTF("LSM6DS33: Unable to configure FIFO decimation factor (FIFO_CTRL3)\n");
         return false;
@@ -321,7 +343,7 @@ void AP_InertialSensor_LSM6DS33::_read_fifo()
     // 1. Read the FIFO_STATUS1 and FIFO_STATUS2 registers to check how many words
     // (16-bit data) are stored in the FIFO. This information is contained in the
     // DIFF_FIFO_[11:0] bits.
-    uint16_t num_samples = 0;
+    uint32_t num_samples = 0;
     bool status = _dev->read_registers(FIFO_STATUS1, (uint8_t *) &num_samples, 2);
     if (!status) {
         DEV_PRINTF("LSM6DS33: Unable to read the number of samples in the FIFO (FIFO_STATUS1, FIFO_STATUS2)\n");
@@ -329,11 +351,9 @@ void AP_InertialSensor_LSM6DS33::_read_fifo()
     }
     num_samples &= 0xFFF;  // Consider only DIFF_FIFO_[11:0] bits.
 //    hal.console->printf("num samples: %d\n", num_samples);
-
     // 2. Read the FIFO_STATUS3 and FIFO_STATUS4 registers. The FIFO_PATTERN_[9:0]
     // bits allows understanding which sensor and which couple of bytes is being read.
     // TODO: write asserts
-
     // 3. Read the FIFO_DATA_OUT_L and FIFO_DATA_OUT_H registers to retrieve the oldest
     // sample (16-bits format) in the FIFO. They are respectively the lower and the upper part
     // of the oldest sample.
@@ -367,6 +387,7 @@ void AP_InertialSensor_LSM6DS33::_read_fifo()
         _notify_new_accel_raw_sample(_accel_instance, accel);
         _notify_new_gyro_raw_sample(_gyro_instance, gyro);
     }
+    _reset_fifo();
 }
 
 #endif

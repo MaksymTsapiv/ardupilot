@@ -71,9 +71,10 @@ private:
     void _set_accel_scale(accel_scale scale);
 
     bool _configure_fifo();
+    bool _reset_fifo();
     void _read_fifo();
 
-    struct PACKED sensor_raw_data {
+    struct sensor_raw_data {
             int16_t x;
             int16_t y;
             int16_t z;
